@@ -1,0 +1,9 @@
+// app/routes/login.js
+var auth = require('./../auth/auth')
+module.exports = function(router) {
+  'use strict';
+  router.route('/')
+    .post((req, res, next) => {
+      return auth.login(req, res, next)
+    })
+};

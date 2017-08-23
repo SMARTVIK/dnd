@@ -1,40 +1,55 @@
-var jwt = require('jwt');
-import User from '../models/user';
+var jwt = require('jsonwebtoken');
+
+const User = require('./../models/users');
 var FB = require('fb');
 
 var auth = {
   login: function(req, res) {
-    var username = req.body.username || '';
-    var password = req.body.password || '';
-    if (username == '' || password == '') {
-      res.status(401);
-      res.json({
-        "status": 401,
-        "message": "Invalid credentials"
-      });
-      return;
+    console.log("login function call");
+    //login with facebook
+    console.log(req.body);
+
+    if (req.body.facebook) {
+      // res.json({
+      //   success:1
+      // })
+      // console.log(auth);
+      var result = auth.facebookLoginValidation(req.body.facebook);
+      console.log(result);
+      res.json(result);
     }
-    // Fire a query to your DB and check if the credentials are valid
-    var dbUserObj = auth.validate(username, password);
-    if (!dbUserObj) { // If authentication fails, we send a 401 back
-      res.status(401);
+    //login with google
+    else if (req.body.google) {
       res.json({
-        "status": 401,
-        "message": "Invalid credentials"
-      });
-      return;
+        error: 1
+      })
     }
-    if (dbUserObj) {
-      // If authentication is success, we will generate a token
-      // and dispatch it to the client
-      res.json(genToken(dbUserObj));
+    //login with password
+    else {
+      res.json({
+        success: false,
+        message: 'Failed to authenticate token.'
+      })
     }
   },
-  facebookLogin(facebookObject) {
-    auth.facebookObject(facebookObject)
+  loginWithToken(req, res) {
+    if (!req.body.loginToken) {
+      res.json({
+        "status": 401,
+        "message": "Invalid credentials"
+      });
+    }
+
   },
   facebookLoginValidation(facebookObject) {
 
+    if (!facebookObject.accessToken) {
+      return {
+        "error": 1,
+        "status": 403,
+        "message": "Access token required"
+      }
+    }
     FB.setAccessToken(facebookObject.accessToken);
 
     return new Promise((resolve, reject) => {
@@ -42,7 +57,8 @@ var auth = {
           fields: ['id', 'name', "first_name", "last_name", "email"]
         },
         function(result) {
-          resolver(result)
+          console.log(result);
+          resolve(result)
         });
     }).then((facebookResult) => {
       return new Promise((resolve, reject) => {
@@ -60,7 +76,7 @@ var auth = {
           auth.findFbAccountOrCreate(facebookObject).then((user) => {
             resolve(user)
           }).catch((err) => {
-            rreject({
+            reject({
               "status": 400,
               "message": "Authentication Failed",
               "error": err
@@ -95,10 +111,12 @@ var auth = {
             first_name: facebookObject.first_name,
             last_name: facebookObject.first_name
           }
+        }, (err, savedUser) => {
+          resolve(genToken(savedUser))
         })
       })
     })
-  }
+  },
   validate: function(username, password) {
     // spoofing the DB response for simplicity
     var dbUserObj = { // spoofing a userobject from the DB.
@@ -117,6 +135,27 @@ var auth = {
     };
     return dbUserObj;
   },
+  validateToken(token) {
+    return new Promise((resolve, reject) => {
+      if (token) {
+        reject({
+          success: false,
+          message: 'No token provided.'
+        })
+      }
+      jwt.verify(token, require('../config/secret')(), function(err, decoded) {
+        if (err) {
+          reject({
+            success: false,
+            message: 'Failed to authenticate token.'
+          })
+        } else {
+          // if everything is good, save to request for use in other routes
+          resolve(decoded)
+        }
+      });
+    })
+  }
 }
 // private method
 function genToken(user) {
