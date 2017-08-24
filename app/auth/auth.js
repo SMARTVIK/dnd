@@ -1,38 +1,47 @@
 var jwt = require('jsonwebtoken');
 const Users = require('./../models/users');
 var FB = require('fb');
+var SHA256 =require('sha256');
+var bcrypt = require("bcrypt");
 
 var auth = {
   login: function(req, res) {
     console.log("login function call");
+
+
+    console.log(hashPassword(req.body.password));
     //login with facebook
     if (req.body.facebook) {
-      // res.json({
-      //   success:1
-      // })
-      // console.log(auth);
       var facebook = req.body.facebook;
-
       facebookLoginValidation(facebook).then((result) => {
         console.log("result", result);
         res.json(result);
       }).catch((err) => {
         res.json(err);
       })
-
     }
     //login with google
     else if (req.body.google) {
-      res.json({
-        error: 1
+      var google = req.body.google;
+      googleLoginValidation(google).then((result) => {
+        res.json(result);
+      }).catch((err) => {
+        res.json(err);
       })
     }
     //login with password
     else {
-      res.json({
-        success: false,
-        message: 'Failed to authenticate token.'
+      // var email = req.body.email;
+      loginWithEmail(req.body).then((result) => {
+        console.log("result", result);
+        res.json(result);
+      }).catch((err) => {
+        res.json(err);
       })
+      // res.json({
+      //   success: false,
+      //   message: 'Failed to authenticate token.'
+      // })
     }
   },
   loginWithToken(req, res) {
@@ -85,12 +94,17 @@ var auth = {
   }
 }
 
+function googleLoginValidation(googleObject) {
+  googleObject = JSON.parse(googleObject);
+
+}
+
 function facebookLoginValidation(facebookObject) {
   facebookObject = JSON.parse(facebookObject);
   return new Promise((resolve, reject) => {
     if (!facebookObject.accessToken) {
       reject({
-        "error": 1,
+        "success": 0,
         "status": 403,
         "message": "Access token required"
       })
@@ -101,11 +115,34 @@ function facebookLoginValidation(facebookObject) {
         fields: ['id', 'name', "first_name", "last_name", "email"]
       },
       function(result) {
-        resolve(facebookCallback(result))
+        facebookCallback(result).then((result) => {
+          resolve(result)
+        })
       }
     );
   })
 }
+
+var getPasswordString = function(password) {
+    if (typeof password === "string") {
+        password = SHA256(password);
+    } else { // 'password' is an object
+        if (password.algorithm !== "sha-256") {
+            throw new Error("Invalid password hash algorithm. " +
+                "Only 'sha-256' is allowed.");
+        }
+        password = password.digest;
+    }
+    return password;
+};
+
+
+var hashPassword = function(password) {
+    password = getPasswordString(password);
+    bcrypt.hash(password, 10).then((newPassword)=>{
+      // console.log(newPassword);
+    });
+};
 
 function facebookCallback(facebookResult) {
   //user not valid or sent some worng data
@@ -117,7 +154,10 @@ function facebookCallback(facebookResult) {
         "error": err
       })
     }
-    resolve(findFbAccountOrCreate(facebookResult))
+    findFbAccountOrCreate(facebookResult).then((result) => {
+      resolve(result);
+    })
+
   });
 }
 
@@ -146,7 +186,7 @@ function findFbAccountOrCreate(facebookObject) {
         },
         "profile": {
           first_name: facebookObject.first_name,
-          last_name: facebookObject.first_name
+          last_name: facebookObject.last_name
         }
       })
 
@@ -159,6 +199,136 @@ function findFbAccountOrCreate(facebookObject) {
     })
   })
 }
+
+
+function loginWithEmail(options) {
+  console.log(options);
+  return new Promise((resolve, reject) => {
+    if (!options.email) {
+      reject({
+        success: 0,
+        message: "Email id required",
+        code: 403
+      })
+    }
+
+    Users.findOne({
+      "emails": {
+        "$elemMatch": {
+          "address": options.email,
+          "verified": true
+        }
+      }
+    }, '_id profile emails', (err, user) => {
+      if (err) {
+        reject({
+          success: 0,
+          message: err,
+          code: 400
+        })
+      }
+
+      //old user
+      if (user) {
+        resolve(genToken(user))
+      }
+
+      if (options.otp) {
+        Users.findOne({
+            emails: {
+              $elemMatch: {
+                address: options.email,
+                otp: options.otp,
+              }
+            }
+          })
+          .select({
+            emails: {
+              $elemMatch: {
+                address: options.email,
+                otp: options.otp,
+              }
+            },
+            created_date: 0
+          })
+          .exec((err, doc) => {
+            if (doc) {
+              doc.emails[0].verified = true,
+                delete doc.emails[0].otp;
+              doc.profile = {
+                first_name: options.first_name,
+                last_name: options.last_name
+              }
+              doc.save((err, result) => {
+                resolve(genToken(doc))
+              })
+            }
+
+            reject({
+              success: 0,
+              message: err || " Otp not valid, Please try again later",
+              code: 400
+            })
+          })
+      } else {
+
+
+        //new user
+        var code = getRandomCode(6);
+        console.log(code);
+        var email = options.email
+        var newUser = new Users({
+          emails: [{
+            "address": options.email,
+            "verified": false,
+            "otp": code
+          }]
+        })
+
+        console.log(newUser);
+
+        newUser.save((err) => {
+          console.log(err);
+          resolve({
+            success: 0,
+            message: "Otp sent successfully",
+            code: 100
+          })
+        })
+        //Send email with otp
+        resolve({
+          success: 0,
+          message: "Otp sent successfully",
+          code: 100
+        })
+      }
+
+    })
+  })
+
+}
+
+var getRandomCode = function(length) {
+  length = length || 4
+  var output = ''
+  while (length-- > 0) {
+    output += getRandomDigit()
+  }
+  return output
+}
+
+
+// var options = {}
+// options.phone = "9211978861"
+// Meteor.loginWithPhone(options)
+/**
+ * Return random 1-9 digit
+ * @returns {number}
+ */
+var getRandomDigit = function() {
+  return Math.floor((Math.random() * 9) + 1)
+}
+
 // private method
 function genToken(user) {
   var expires = expiresIn(1); // 1 days
