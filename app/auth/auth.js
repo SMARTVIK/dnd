@@ -1,22 +1,25 @@
 var jwt = require('jsonwebtoken');
-
-const User = require('./../models/users');
+const Users = require('./../models/users');
 var FB = require('fb');
 
 var auth = {
   login: function(req, res) {
     console.log("login function call");
     //login with facebook
-    console.log(req.body);
-
     if (req.body.facebook) {
       // res.json({
       //   success:1
       // })
       // console.log(auth);
-      var result = auth.facebookLoginValidation(req.body.facebook);
-      console.log(result);
-      res.json(result);
+      var facebook = req.body.facebook;
+
+      facebookLoginValidation(facebook).then((result) => {
+        console.log("result", result);
+        res.json(result);
+      }).catch((err) => {
+        res.json(err);
+      })
+
     }
     //login with google
     else if (req.body.google) {
@@ -36,86 +39,10 @@ var auth = {
     if (!req.body.loginToken) {
       res.json({
         "status": 401,
-        "message": "Invalid credentials"
+        "message": "Invalid credentials."
       });
     }
 
-  },
-  facebookLoginValidation(facebookObject) {
-
-    if (!facebookObject.accessToken) {
-      return {
-        "error": 1,
-        "status": 403,
-        "message": "Access token required"
-      }
-    }
-    FB.setAccessToken(facebookObject.accessToken);
-
-    return new Promise((resolve, reject) => {
-      FB.api("/me", {
-          fields: ['id', 'name', "first_name", "last_name", "email"]
-        },
-        function(result) {
-          console.log(result);
-          resolve(result)
-        });
-    }).then((facebookResult) => {
-      return new Promise((resolve, reject) => {
-
-        //user not valid or sent some worng data
-        if (facebookResult.id != loginServices.facebook.id || !facebookResult || facebookResult.error) {
-          reject({
-            "status": 400,
-            "message": "Authentication Failed",
-            "error": err
-          })
-        }
-        //if user not given email permisstion
-        if (!facebookResult.email) {
-          auth.findFbAccountOrCreate(facebookObject).then((user) => {
-            resolve(user)
-          }).catch((err) => {
-            reject({
-              "status": 400,
-              "message": "Authentication Failed",
-              "error": err
-            })
-          })
-        }
-      })
-    })
-  },
-  findFbAccountOrCreate(facebookObject) {
-    return new Promise((resolve, reject) => {
-      Users.findOne({
-        "services.facebook.id": facebookObject.id
-      }, '_id profile', (err, user) => {
-        if (err) {
-          reject({
-            "status": 400,
-            "message": "Authentication Failed",
-            "error": err
-          })
-        }
-        //if user exists
-        if (user) {
-          resolve(genToken(user))
-        }
-
-        User.save({
-          "services": {
-            "facebook": facebookObject
-          },
-          "profile": {
-            first_name: facebookObject.first_name,
-            last_name: facebookObject.first_name
-          }
-        }, (err, savedUser) => {
-          resolve(genToken(savedUser))
-        })
-      })
-    })
   },
   validate: function(username, password) {
     // spoofing the DB response for simplicity
@@ -157,12 +84,87 @@ var auth = {
     })
   }
 }
+
+function facebookLoginValidation(facebookObject) {
+  facebookObject = JSON.parse(facebookObject);
+  return new Promise((resolve, reject) => {
+    if (!facebookObject.accessToken) {
+      reject({
+        "error": 1,
+        "status": 403,
+        "message": "Access token required"
+      })
+    }
+    FB.setAccessToken(facebookObject.accessToken);
+
+    FB.api("/me", {
+        fields: ['id', 'name', "first_name", "last_name", "email"]
+      },
+      function(result) {
+        resolve(facebookCallback(result))
+      }
+    );
+  })
+}
+
+function facebookCallback(facebookResult) {
+  //user not valid or sent some worng data
+  return new Promise((resolve, reject) => {
+    if (!facebookResult || facebookResult.error) {
+      reject({
+        "status": 400,
+        "message": "Authentication Failed",
+        "error": err
+      })
+    }
+    resolve(findFbAccountOrCreate(facebookResult))
+  });
+}
+
+function findFbAccountOrCreate(facebookObject) {
+  console.log("90");
+  return new Promise((resolve, reject) => {
+    Users.findOne({
+      "services.facebook.id": facebookObject.id
+    }, '_id profile', (err, user) => {
+      if (err) {
+        console.log("102");
+        reject({
+          "status": 400,
+          "message": "Authentication Failed",
+          "error": err
+        })
+      }
+      //if user exists
+      if (user) {
+        console.log("63");
+        resolve(genToken(user))
+      }
+      var userDoc = new Users({
+        "services": {
+          "facebook": facebookObject
+        },
+        "profile": {
+          first_name: facebookObject.first_name,
+          last_name: facebookObject.first_name
+        }
+      })
+
+      userDoc.save((err, savedUser) => {
+        if (err) {
+          reject(err)
+        }
+        resolve(genToken(savedUser))
+      })
+    })
+  })
+}
 // private method
 function genToken(user) {
   var expires = expiresIn(1); // 1 days
-  var token = jwt.encode({
+  var token = jwt.sign({
     exp: expires
-  }, require('../config/secret')());
+  }, require('./../config/config').secret);
   return {
     token: token,
     expires: expires,

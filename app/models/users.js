@@ -12,12 +12,18 @@ const Users = mongoose.model('Users', new Schema({
     unique: true,
     match: /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/
   }],
+  profile: {
+    first_name: String,
+    last_name: String
+  },
   services: {
     facebook: {
-      id: String
+      type: Schema.Types.Mixed,
+      required: false
     },
     google: {
-      id: String
+      id: String,
+      required: false
     }
   },
   created_date: {
