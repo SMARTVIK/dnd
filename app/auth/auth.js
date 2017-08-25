@@ -1,15 +1,14 @@
 var jwt = require('jsonwebtoken');
 const Users = require('./../models/users');
 var FB = require('fb');
-var SHA256 =require('sha256');
+var SHA256 = require('sha256');
 var bcrypt = require("bcrypt");
 
 var auth = {
   login: function(req, res) {
     console.log("login function call");
 
-
-    console.log(hashPassword(req.body.password));
+    // console.log(hashPassword(req.body.password));
     //login with facebook
     if (req.body.facebook) {
       var facebook = req.body.facebook;
@@ -124,24 +123,23 @@ function facebookLoginValidation(facebookObject) {
 }
 
 var getPasswordString = function(password) {
-    if (typeof password === "string") {
-        password = SHA256(password);
-    } else { // 'password' is an object
-        if (password.algorithm !== "sha-256") {
-            throw new Error("Invalid password hash algorithm. " +
-                "Only 'sha-256' is allowed.");
-        }
-        password = password.digest;
-    }
-    return password;
+  console.log(typeof password);
+  if (typeof password === "string") {
+    password = SHA256(password);
+  } else { // 'password' is an object
+    // if (password.algorithm !== "sha-256") {
+    //   throw new Error("Invalid password hash algorithm. " +
+    //     "Only 'sha-256' is allowed.");
+    // }
+    password = password.digest;
+  }
+  return password;
 };
 
 
 var hashPassword = function(password) {
-    password = getPasswordString(password);
-    bcrypt.hash(password, 10).then((newPassword)=>{
-      // console.log(newPassword);
-    });
+  password = getPasswordString(password);
+  return bcrypt.hash(password, 10)
 };
 
 function facebookCallback(facebookResult) {
@@ -210,6 +208,8 @@ function loginWithEmail(options) {
         message: "Email id required",
         code: 403
       })
+      console.log("reject");
+      return;
     }
 
     Users.findOne({
@@ -234,6 +234,15 @@ function loginWithEmail(options) {
       }
 
       if (options.otp) {
+
+        if (!options.password) {
+          reject({
+            success: 0,
+            message: "Password required",
+            code: 403
+          })
+        }
+
         Users.findOne({
             emails: {
               $elemMatch: {
@@ -253,26 +262,80 @@ function loginWithEmail(options) {
           })
           .exec((err, doc) => {
             if (doc) {
-              doc.emails[0].verified = true,
-                delete doc.emails[0].otp;
-              doc.profile = {
-                first_name: options.first_name,
-                last_name: options.last_name
-              }
-              doc.save((err, result) => {
-                resolve(genToken(doc))
-              })
+              hashPassword(options.password)
+                .then((token) => {
+                  Users.update({
+                    _id: doc._id,
+                    emails: {
+                      $elemMatch: {
+                        address: options.email,
+                        otp: options.otp
+                      }
+                    }
+                  }, {
+                    $set: {
+                      "emails.$.verified": true,
+                      "profile.first_name": options.first_name,
+                      "profile.last_name": options.last_name,
+                      "services.password": {
+                        bcrypt: token
+                      }
+                    },
+                    $unset: {
+                      "emails.$.otp": 1
+                    }
+                  }, {}, (err, result) => {
+                    if (err) {
+                      reject({
+                        success: 0,
+                        message: err || " Otp not valid, Please try again later",
+                        code: 400
+                      })
+                    }
+                    resolve(genToken(doc))
+                  })
+                })
+              // doc.emails[0].verified = true,
+              //   delete doc.emails[0].otp;
+              // doc.profile = {
+              //   first_name: options.first_name,
+              //   last_name: options.last_name
+              // }
+              //
+              // if (!doc.services) {
+              //   doc.services = {}
+              // }
+              //
+              // hashPassword(options.password)
+              //   .then((token) => {
+              //     doc.services.password = {
+              //       bcrypt: token
+              //     }
+              //     doc.save((err, result) => {
+              //       if (err) {
+              //         reject({
+              //           success: 0,
+              //           message: err || " Otp not valid, Please try again later",
+              //           code: 400
+              //         })
+              //       }
+              //       resolve(genToken(doc))
+              //     })
+              //   })
             }
 
-            reject({
-              success: 0,
-              message: err || " Otp not valid, Please try again later",
-              code: 400
-            })
+            if (err) {
+              reject({
+                success: 0,
+                message: err || " Otp not valid, Please try again later",
+                code: 400
+              })
+            }
           })
       } else {
 
 
+        console.log("298");
         //new user
         var code = getRandomCode(6);
         console.log(code);
@@ -336,9 +399,10 @@ function genToken(user) {
     exp: expires
   }, require('./../config/config').secret);
   return {
+    success: 1,
     token: token,
     expires: expires,
-    user: user
+    user_profile: user.profile || {}
   };
 }
 

@@ -40,6 +40,8 @@ var start = function(cb) {
     next(err);
   });
 
+  
+
   app.listen(node_post);
   logger.info('[SERVER] Listening on port ' + node_post);
 

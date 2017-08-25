@@ -5,9 +5,12 @@ module.exports = function(router) {
   // This will handle the url calls for /users/:user_id
   router.route('/:userId')
     .get(function(req, res, next) {
+      console.log("req  header", req.headers);
       // Return user
     })
     .put(function(req, res, next) {
+      console.log("req  header", req);
+
       // Update user
     })
     .patch(function(req, res, next) {
