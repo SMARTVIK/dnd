@@ -7,8 +7,6 @@ var bcrypt = require("bcrypt");
 var auth = {
   login: function(req, res) {
     console.log("login function call");
-
-    // console.log(hashPassword(req.body.password));
     //login with facebook
     if (req.body.facebook) {
       var facebook = req.body.facebook;

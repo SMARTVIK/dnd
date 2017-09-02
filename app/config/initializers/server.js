@@ -1,13 +1,11 @@
 // config/initializers/server.js
-
 var express = require('express');
 var path = require('path');
-
-// create the express app
-// configure middlewares
 var bodyParser = require('body-parser');
 var morgan = require('morgan');
 var logger = require('winston');
+
+var multer  = require('multer')
 var app;
 
 var node_post = process.env.NODE_PORT || 8080
@@ -22,11 +20,12 @@ var start = function(cb) {
     extended: true
   }));
   app.use(bodyParser.json({
-    type: '*/*'
+    // type: '*/*'
   }));
 
   logger.info('[SERVER] Initializing routes');
-  require('./../../routes/index')(app);
+  require('./../../routes/index')(app,multer);
+
 
   app.use(express.static(path.join(__dirname, 'public')));
 
@@ -40,7 +39,7 @@ var start = function(cb) {
     next(err);
   });
 
-  
+
 
   app.listen(node_post);
   logger.info('[SERVER] Listening on port ' + node_post);
